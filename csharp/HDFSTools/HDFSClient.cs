@@ -210,7 +210,7 @@ namespace HDFSClient
         private bool Delete(string path, bool recursive = false)
         {
             string url = CombineUrl(String.Format(QueryUrl.WebHdfs, path.TrimStart('/')),
-                                      String.Format(QueryUrl.Delete, recursive));
+                                    String.Format(QueryUrl.Delete, recursive));
             return TrySendRequest(url, "DELETE");
         }
 
