@@ -143,7 +143,7 @@ namespace HDFSClient
             this.lastTimeRefreshActiveNameNode = DateTime.UtcNow;
         }
 
-        private bool TrySendRequest(string url, string method, bool retry = true, int errBoundary = 2, bool printError = true)
+        private bool TrySendRequest(string url, string method, int errBoundary = 2)
         {
 
             int errCount = 0;
