@@ -178,7 +178,7 @@ namespace HDFSClient
             return false;
         }
 
-        public bool SendRequest(string url, string method)
+        private bool SendRequest(string url, string method)
         {
             TimeSpan ts = DateTime.UtcNow - this.lastTimeRefreshActiveNameNode;
             if (ts.TotalSeconds >= TimeOutInSecond)
