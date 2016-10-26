@@ -156,6 +156,10 @@ namespace HDFSClient
                     {
                         return true;
                     }
+                    else
+                    {
+                        throw new WebException();
+                    }
                 }
                 catch (WebException ex)
                 {
