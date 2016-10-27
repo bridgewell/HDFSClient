@@ -9,31 +9,36 @@ using Newtonsoft.Json;
 namespace HDFSClient
 {
 
+    public class _FileStatus
+    {
+        public long accessTime;
+        public long blockSize;
+        public int childrenNum;
+        public int fileId;
+        public string group;
+        public long length;
+        public long modificationTime;
+        public string owner;
+        public string pathSuffix;
+        public string permission;
+        public int replication;
+        public string type;
+    }
+
     public class ListStatusResponse
     {
         public class _FileStatuses
         {
-            public class _FileStatus
-            {
-                public long accessTime;
-                public long blockSize;
-                public int childrenNum;
-                public int fileId;
-                public string group;
-                public long length;
-                public long modificationTime;
-                public string owner;
-                public string pathSuffix;
-                public string permission;
-                public int replication;
-                public string type;
-            }
-
             public IList<_FileStatus> FileStatus;
         }
-
         public _FileStatuses FileStatuses;
     }
+
+    public class FileStatusResponse
+    {
+        public _FileStatus FileStatuses;
+    }
+
     public class HdfsClient
     {
         public static NLog.Logger logger = NLog.LogManager.GetCurrentClassLogger();
@@ -53,13 +58,14 @@ namespace HDFSClient
             public static readonly string Create = "?op=CREATE&overwrite={0}";
             public static readonly string ListDir = "?op=LISTSTATUS";
             public static readonly string Open = "?op=OPEN";
+            public static readonly string Status = "?op=GETFILESTATUS";
             //public static readonly string 
         }
 
         private class FileType
         {
-            public static readonly string File = "FILE";
-            public static readonly string Directory = "DIRECTORY";
+            public static const string File = "FILE";
+            public static const string Directory = "DIRECTORY";
         }
 
         public class ListResult
@@ -380,6 +386,33 @@ namespace HDFSClient
             return null;
         }
 
+        private _FileStatus GetStatus(string path, int errBoundary = 2)
+        {
+            string url = CombineUrl(String.Format(QueryUrl.WebHdfs, path.TrimStart('/')), QueryUrl.Status);
+
+            int errCount = 0;
+            while (errCount < errBoundary)
+            {
+                try
+                {
+                    var request = (HttpWebRequest)WebRequest.Create(String.Format(url, this.activeNameNode));
+                    request.Method = "GET";
+                    var response = (HttpWebResponse)request.GetResponse();
+                    StreamReader sr = new StreamReader(response.GetResponseStream());
+                    var statuses = JsonConvert.DeserializeObject<FileStatusResponse>(sr.ReadToEnd());
+                    response.Close();
+                    return statuses.FileStatuses;
+                }
+                catch (WebException)
+                {
+                    RefreshActiveNameNode();
+                    errCount++;
+                }
+            }
+            logger.Warn("Can't query HDFS file status");
+            return null;
+        }
+
         private bool DownloadFile(string remotePath, string localPath, int errBoundary = 2)
         {
             string url = CombineUrl(String.Format(QueryUrl.WebHdfs, remotePath.TrimStart('/')), QueryUrl.Open);
@@ -473,20 +506,22 @@ namespace HDFSClient
                 }
             }
 
-            ListResult listResult = ListDir(remotePath);
-            if (listResult == null)
+            _FileStatus fileStatus = GetStatus(remotePath);
+            if (fileStatus == null)
             {
                 logger.Warn("Remote path is not exists, please check");
                 return false;
             }
 
-            if (listResult.isEmtpy())
+            switch (fileStatus.type)
             {
-                return DownloadByTmpFile(remotePath, localPath);
-            }
-            else
-            {
-                return DownloadByTmpDirectory(remotePath, localPath);
+                case FileType.File:
+                    return DownloadByTmpFile(remotePath, localPath);
+                case FileType.Directory:
+                    return DownloadByTmpDirectory(remotePath, localPath);
+                default:
+                    logger.Error(string.Format("Unknow file type: {0}", fileStatus.type));
+                    return false;
             }
         }
     }
