@@ -36,7 +36,24 @@ namespace HDFSTools
 
     public class FileStatusResponse
     {
-        public _FileStatus FileStatuses;
+        public _FileStatus FileStatus;
+    }
+
+    public class NameNode
+    {
+        private string domain;
+        private int port;
+
+        public NameNode(string domain, int port)
+        {
+            this.domain = domain;
+            this.port = port;
+        }
+
+        public override string ToString()
+        {
+            return String.Format("{0}:{1}", this.domain, this.port);
+        }
     }
 
     public class HDFSClient
@@ -61,7 +78,7 @@ namespace HDFSTools
             public static readonly string Status = "?op=GETFILESTATUS";
         }
 
-        private class FileType
+        private static class FileType
         {
             public const string File = "FILE";
             public const string Directory = "DIRECTORY";
@@ -78,8 +95,8 @@ namespace HDFSTools
             }
         }
 
-        private string[] nameNodes;
-        private string activeNameNode;
+        private NameNode[] nns;
+        private NameNode activeNameNode;
         private WebClient webClient;
 
         private string CombineUrl(params string[] urls)
@@ -91,18 +108,18 @@ namespace HDFSTools
 
         /// <summary>
         /// </summary>
-        /// <param name="nameNodes">list of NameNode address, express with "domain:port"</param>
-        public HDFSClient(string[] nameNodes)
+        /// <param name="nns">list of NameNode address</param>
+        public HDFSClient(NameNode[] nns)
         {
-            InitHDFSClient(nameNodes);
+            InitHDFSClient(nns);
         }
 
         /// <summary>
         /// </summary>
-        /// <param name="nameNodes">list of NameNode address, express with "domain:port"</param>
-        private void InitHDFSClient(string[] nameNodes)
+        /// <param name="nns">list of NameNode addres</param>
+        private void InitHDFSClient(NameNode[] nns)
         {
-            this.nameNodes = nameNodes;
+            this.nns = nns;
             this.webClient = new WebClient();
             RefreshActiveNameNode();
         }
@@ -113,9 +130,9 @@ namespace HDFSTools
         public void RefreshActiveNameNode()
         {
             int index;
-            for (index = 0; index < this.nameNodes.Length; ++index)
+            for (index = 0; index < this.nns.Length; ++index)
             {
-                var nameNode = this.nameNodes[index];
+                var nameNode = this.nns[index];
                 HttpWebRequest request = (HttpWebRequest)WebRequest.CreateHttp(String.Format(QueryUrl.NameNodeStatus, nameNode));
                 try
                 {
@@ -133,16 +150,16 @@ namespace HDFSTools
                     // Do nothing
                 }
             }
-            if (index == this.nameNodes.Length)
+            if (index == this.nns.Length)
             {
                 throw new Exception("Can't find active HDFS NameNode");
             }
 
-            this.activeNameNode = this.nameNodes[index];
+            this.activeNameNode = this.nns[index];
             if (index != 0)
             {
-                this.nameNodes[index] = this.nameNodes[0];
-                this.nameNodes[0] = this.activeNameNode;
+                this.nns[index] = this.nns[0];
+                this.nns[0] = this.activeNameNode;
             }
             this.lastTimeRefreshActiveNameNode = DateTime.UtcNow;
         }
@@ -322,7 +339,7 @@ namespace HDFSTools
             }
         }
 
-        public bool Upload(string localPath, string remotePath, bool overwrite = false)
+        public bool Upload(string localPath, string remotePath)
         {
             if (File.Exists(localPath))
             {
@@ -331,7 +348,6 @@ namespace HDFSTools
             else if (Directory.Exists(localPath))
             {
                 return UploadByTmpDirectory(localPath, remotePath);
-                return true;
             }
             else
             {
@@ -399,7 +415,7 @@ namespace HDFSTools
                     StreamReader sr = new StreamReader(response.GetResponseStream());
                     var statuses = JsonConvert.DeserializeObject<FileStatusResponse>(sr.ReadToEnd());
                     response.Close();
-                    return statuses.FileStatuses;
+                    return statuses.FileStatus;
                 }
                 catch (WebException)
                 {
@@ -492,10 +508,22 @@ namespace HDFSTools
             return success;
         }
 
+        private void CheckAndRemoveTargetData(string path)
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+            else if (Directory.Exists(path))
+            {
+                Directory.Delete(path, true);
+            }
+        }
+
         public bool Download(string remotePath, string localPath, bool overwrite = true)
         {
 
-            if (Directory.Exists(localPath))
+            if (File.Exists(localPath) || Directory.Exists(localPath))
             {
                 logger.Warn(string.Format("Local path have been used: {0}", localPath));
                 if (!overwrite)
