@@ -60,7 +60,8 @@ namespace HDFSTools
     {
         public static NLog.Logger logger = NLog.LogManager.GetCurrentClassLogger();
 
-        private static readonly int TimeOutInSecond = 10;
+        private const int TimeOutInSecond = 10;
+        private const int DefaultErrorBoundary = 3;
 
         private DateTime lastTimeRefreshActiveNameNode;
 
@@ -164,7 +165,7 @@ namespace HDFSTools
             this.lastTimeRefreshActiveNameNode = DateTime.UtcNow;
         }
 
-        private bool TrySendRequest(string url, string method, int errBoundary = 2)
+        private bool TrySendRequest(string url, string method, int errBoundary = DefaultErrorBoundary)
         {
 
             int errCount = 0;
@@ -245,7 +246,7 @@ namespace HDFSTools
             return path + "_" + guid + "_tmp";
         }
 
-        private bool UploadFile(string localPath, string remotePath, int errBoundary = 3)
+        private bool UploadFile(string localPath, string remotePath, int errBoundary = DefaultErrorBoundary)
         {
             string url = CombineUrl(String.Format(QueryUrl.WebHdfs, remotePath.TrimStart('/')),
                                     String.Format(QueryUrl.Create, true));
@@ -362,7 +363,7 @@ namespace HDFSTools
         /// <param name="path"></param>
         /// <param name="errBoundary"></param>
         /// <returns>ListResult, null if path is not exists</returns>
-        private ListResult ListDir(string path, int errBoundary = 2)
+        private ListResult ListDir(string path, int errBoundary = DefaultErrorBoundary)
         {
             string url = CombineUrl(String.Format(QueryUrl.WebHdfs, path.TrimStart('/')), QueryUrl.ListDir);
 
@@ -400,7 +401,7 @@ namespace HDFSTools
             return null;
         }
 
-        private _FileStatus GetStatus(string path, int errBoundary = 2)
+        private _FileStatus GetStatus(string path, int errBoundary = DefaultErrorBoundary)
         {
             string url = CombineUrl(String.Format(QueryUrl.WebHdfs, path.TrimStart('/')), QueryUrl.Status);
 
@@ -427,7 +428,7 @@ namespace HDFSTools
             return null;
         }
 
-        private bool DownloadFile(string remotePath, string localPath, int errBoundary = 2)
+        private bool DownloadFile(string remotePath, string localPath, int errBoundary = DefaultErrorBoundary)
         {
             string url = CombineUrl(String.Format(QueryUrl.WebHdfs, remotePath.TrimStart('/')), QueryUrl.Open);
 
@@ -448,7 +449,7 @@ namespace HDFSTools
             return errCount < errBoundary ? true : false;
         }
 
-        private bool DownloadDirectory(string remotePath, string localPath, int errBoundary = 3)
+        private bool DownloadDirectory(string remotePath, string localPath)
         {
             Queue<string> dirQueue = new Queue<string>();
 
@@ -484,6 +485,7 @@ namespace HDFSTools
             bool success = DownloadFile(remotePath, localTmpPath);
             if (success)
             {
+                CheckAndRemoveTargetData(localPath);
                 File.Move(localTmpPath, localPath);
             }
             else
@@ -499,6 +501,7 @@ namespace HDFSTools
             bool success = DownloadDirectory(remotePath, localTmpPath);
             if (success)
             {
+                CheckAndRemoveTargetData(localPath);
                 Directory.Move(localTmpPath, localPath);
             }
             else
