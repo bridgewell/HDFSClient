@@ -6,7 +6,7 @@ using System.IO;
 using Newtonsoft.Json;
 
 
-namespace HDFSClient
+namespace HDFSTools
 {
 
     public class _FileStatus
@@ -39,7 +39,7 @@ namespace HDFSClient
         public _FileStatus FileStatuses;
     }
 
-    public class HdfsClient
+    public class HDFSClient
     {
         public static NLog.Logger logger = NLog.LogManager.GetCurrentClassLogger();
 
@@ -59,7 +59,6 @@ namespace HDFSClient
             public static readonly string ListDir = "?op=LISTSTATUS";
             public static readonly string Open = "?op=OPEN";
             public static readonly string Status = "?op=GETFILESTATUS";
-            //public static readonly string 
         }
 
         private class FileType
@@ -93,15 +92,15 @@ namespace HDFSClient
         /// <summary>
         /// </summary>
         /// <param name="nameNodes">list of NameNode address, express with "domain:port"</param>
-        public HdfsClient(string[] nameNodes)
+        public HDFSClient(string[] nameNodes)
         {
-            InitHdfsClient(nameNodes);
+            InitHDFSClient(nameNodes);
         }
 
         /// <summary>
         /// </summary>
         /// <param name="nameNodes">list of NameNode address, express with "domain:port"</param>
-        private void InitHdfsClient(string[] nameNodes)
+        private void InitHDFSClient(string[] nameNodes)
         {
             this.nameNodes = nameNodes;
             this.webClient = new WebClient();
@@ -114,7 +113,6 @@ namespace HDFSClient
         public void RefreshActiveNameNode()
         {
             int index;
-            //DateTime now = DateTime.UtcNow;
             for (index = 0; index < this.nameNodes.Length; ++index)
             {
                 var nameNode = this.nameNodes[index];
