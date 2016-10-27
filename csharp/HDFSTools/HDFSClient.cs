@@ -64,8 +64,8 @@ namespace HDFSClient
 
         private class FileType
         {
-            public static const string File = "FILE";
-            public static const string Directory = "DIRECTORY";
+            public const string File = "FILE";
+            public const string Directory = "DIRECTORY";
         }
 
         public class ListResult
