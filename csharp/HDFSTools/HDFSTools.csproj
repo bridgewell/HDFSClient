@@ -50,6 +50,7 @@
   <ItemGroup>
     <Compile Include="HDFSClient.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="WebAction.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />

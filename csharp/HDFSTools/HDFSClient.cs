@@ -41,8 +41,8 @@ namespace HDFSTools
 
     public class NameNode
     {
-        private string domain;
-        private int port;
+        private readonly string domain;
+        private readonly int port;
 
         public NameNode(string domain, int port)
         {
@@ -58,15 +58,14 @@ namespace HDFSTools
 
     public class HDFSClient
     {
-        public static NLog.Logger logger = NLog.LogManager.GetCurrentClassLogger();
+        private static NLog.Logger logger = NLog.LogManager.GetCurrentClassLogger();
 
         private const int TimeOutInSecond = 10;
-        private const int DefaultErrorBoundary = 3;
-
         private DateTime lastTimeRefreshActiveNameNode;
+        private readonly WebAction webAction = new WebAction();
 
 
-        private class QueryUrl
+        private static class QueryUrl
         {
             public static readonly string NameNodeStatus = "http://{0}/jmx?qry=Hadoop:service=NameNode,name=NameNodeStatus";
             public static readonly string WebHdfs = "http://{{0}}/webhdfs/v1/{0}";
@@ -87,18 +86,17 @@ namespace HDFSTools
 
         public class ListResult
         {
-            public string[] dirs { get; set; }
-            public string[] files { get; set; }
+            public string[] Dirs { get; set; }
+            public string[] Files { get; set; }
 
-            public bool isEmtpy()
+            public bool IsEmtpy()
             {
-                return dirs.Count() + files.Count() == 0;
+                return Dirs.Count() + Files.Count() == 0;
             }
         }
 
         private NameNode[] nns;
         private NameNode activeNameNode;
-        private WebClient webClient;
 
         private string CombineUrl(params string[] urls)
         {
@@ -121,34 +119,99 @@ namespace HDFSTools
         private void InitHDFSClient(NameNode[] nns)
         {
             this.nns = nns;
-            this.webClient = new WebClient();
+            this.webAction.SetDefaultExceptionTrigger(ExceptionTrigger);
             RefreshActiveNameNode();
         }
 
         /// <summary>
         /// Looking for the active NameNode
         /// </summary>
+        public void ExceptionTrigger(string url, WebException ex, bool isFinal)
+        {
+            if (!isFinal)
+            {
+                logger.Warn(String.Format("Can't send request: {0} with message {1}, try to refresh active HDFS NameNode",
+                                          String.Format(url, this.activeNameNode),
+                                          ex.Message));
+                RefreshActiveNameNode();
+            }
+            else
+            {
+                logger.Error(String.Format("Can't send request: {0} with error message {1}",
+                                          String.Format(url, this.activeNameNode),
+                                          ex.Message));
+            }
+        }
+
+        private bool TrySendHdfsRequest(string url, string method)
+        {
+            Func<string, string, bool> action = (string _url, string _method) =>
+            {
+                var response = SendHdfsRequest(_url, _method);
+                response.Close();
+                return true;
+            };
+            return webAction.Retry(url, method, action, ExceptionTrigger);
+        }
+
+        private HttpWebResponse SendHdfsRequest(string url, string method)
+        {
+            string requestUrl = FormatNameNode(url);
+
+            return SendRequest(requestUrl, method);
+        }
+
+        private HttpWebResponse SendRequest(string url, string method)
+        {
+            HttpWebRequest request = (HttpWebRequest)WebRequest.Create(url);
+            request.Method = method;
+
+            HttpWebResponse response = (HttpWebResponse)request.GetResponse();
+
+            if (response.StatusCode != HttpStatusCode.OK)
+            {
+                string msg = String.Format("Receive status code: {0}", response.StatusCode);
+                response.Close();
+                throw new WebException(msg);
+            }
+            return response;
+        }
+        private string FormatNameNode(string url)
+        {
+            CheckForRefreshActiveNameNode();
+            return String.Format(url, activeNameNode);
+        }
+
+        private void CheckForRefreshActiveNameNode()
+        {
+            TimeSpan ts = DateTime.UtcNow - this.lastTimeRefreshActiveNameNode;
+            if (ts.TotalSeconds >= TimeOutInSecond)
+            {
+                RefreshActiveNameNode();
+            }
+        }
+
         public void RefreshActiveNameNode()
         {
             int index;
             for (index = 0; index < this.nns.Length; ++index)
             {
                 var nameNode = this.nns[index];
-                HttpWebRequest request = (HttpWebRequest)WebRequest.CreateHttp(String.Format(QueryUrl.NameNodeStatus, nameNode));
-                try
+                string url = String.Format(QueryUrl.NameNodeStatus, nameNode);
+                Func<string, string, string> action = (string _url, string _method) =>
                 {
-                    HttpWebResponse response = (HttpWebResponse)request.GetResponse();
+                    var response = SendRequest(_url, _method);
                     StreamReader sr = new StreamReader(response.GetResponseStream());
                     string message = sr.ReadToEnd();
-                    if (message.Contains("active"))
-                    {
-                        break;
-                    }
+                    sr.Close();
                     response.Close();
-                }
-                catch (WebException)
+                    return message;
+                };
+
+                string responseMessage = webAction.Retry(url, WebRequestMethods.Http.Get, action);
+                if (responseMessage != null && responseMessage.Contains("active"))
                 {
-                    // Do nothing
+                    break;
                 }
             }
             if (index == this.nns.Length)
@@ -165,79 +228,22 @@ namespace HDFSTools
             this.lastTimeRefreshActiveNameNode = DateTime.UtcNow;
         }
 
-        private bool TrySendRequest(string url, string method, int errBoundary = DefaultErrorBoundary)
-        {
-
-            int errCount = 0;
-            while (errCount < errBoundary)
-            {
-                try
-                {
-                    var isSuccess = SendRequest(url, method);
-                    if (isSuccess)
-                    {
-                        return true;
-                    }
-                    else
-                    {
-                        throw new WebException();
-                    }
-                }
-                catch (WebException ex)
-                {
-                    errCount++;
-                    if (errCount < errBoundary)
-                    {
-                        logger.Warn(String.Format("Can't send request: {0} with message {1}, try to refresh active HDFS NameNode",
-                                                  String.Format(url, this.activeNameNode),
-                                                  ex.Message));
-                        RefreshActiveNameNode();
-                    }
-                    else
-                    {
-                        logger.Error(String.Format("Can't send request: {0} with error message {1}",
-                                                   String.Format(url, this.activeNameNode),
-                                                   ex.Message));
-                    }
-                }
-            }
-            return false;
-        }
-
-        private bool SendRequest(string url, string method)
-        {
-            TimeSpan ts = DateTime.UtcNow - this.lastTimeRefreshActiveNameNode;
-            if (ts.TotalSeconds >= TimeOutInSecond)
-            {
-                RefreshActiveNameNode();
-            }
-            url = string.Format(url, activeNameNode);
-            HttpWebRequest request = (HttpWebRequest)WebRequest.Create(url);
-            request.Method = method;
-            HttpWebResponse response = (HttpWebResponse)request.GetResponse();
-            var isSuccess = response.StatusCode == HttpStatusCode.OK;
-            response.Close();
-            return isSuccess;
-        }
-
         public bool Makedirs(string path)
         {
-            string url = CombineUrl(String.Format(QueryUrl.WebHdfs, path.TrimStart('/')), QueryUrl.MakeDirs);
-            return TrySendRequest(url, "PUT");
+            string url = String.Format(QueryUrl.WebHdfs, path.TrimStart('/')) + QueryUrl.MakeDirs;
+            return TrySendHdfsRequest(url, WebRequestMethods.Http.Put);
         }
 
         public bool Rename(string src, string dst)
         {
-            string url = CombineUrl(String.Format(QueryUrl.WebHdfs, src.TrimStart('/')),
-                                    String.Format(QueryUrl.Rename, dst));
-            return TrySendRequest(url, "PUT");
+            string url = String.Format(QueryUrl.WebHdfs, src.TrimStart('/')) + String.Format(QueryUrl.Rename, dst);
+            return TrySendHdfsRequest(url, WebRequestMethods.Http.Put);
         }
 
         private bool Delete(string path, bool recursive = false)
         {
-            string url = CombineUrl(String.Format(QueryUrl.WebHdfs, path.TrimStart('/')),
-                                    String.Format(QueryUrl.Delete, recursive));
-            return TrySendRequest(url, "DELETE");
+            string url = String.Format(QueryUrl.WebHdfs, path.TrimStart('/')) + String.Format(QueryUrl.Delete, recursive);
+            return TrySendHdfsRequest(url, "DELETE");
         }
 
         private string GenerateTmpPath(string path)
@@ -246,26 +252,21 @@ namespace HDFSTools
             return path + "_" + guid + "_tmp";
         }
 
-        private bool UploadFile(string localPath, string remotePath, int errBoundary = DefaultErrorBoundary)
+        private bool UploadFile(string localPath, string remotePath)
         {
-            string url = CombineUrl(String.Format(QueryUrl.WebHdfs, remotePath.TrimStart('/')),
-                                    String.Format(QueryUrl.Create, true));
+            string url = String.Format(QueryUrl.WebHdfs, remotePath.Trim('/')) + String.Format(QueryUrl.Create, true);
 
-            int errCount = 0;
-            while (errCount < errBoundary)
+            Func<string, string, bool> action = (_url, _method) =>
             {
-                try
+                _url = FormatNameNode(_url);
+                using (WebClient wc = new WebClient())
                 {
-                    this.webClient.UploadFile(string.Format(url, this.activeNameNode), "PUT", localPath);
-                    break;
+                    wc.UploadFile(FormatNameNode(_url), _method, localPath);
                 }
-                catch (WebException we)
-                {
-                    RefreshActiveNameNode();
-                    errCount++;
-                }
-            }
-            return errCount < errBoundary ? true : false;
+                return true;
+            };
+
+            return webAction.Retry(url, WebRequestMethods.Http.Put, action, ExceptionTrigger);
         }
 
         private bool UploadByTmpFile(string localPath, string remotePath)
@@ -306,9 +307,7 @@ namespace HDFSTools
                 foreach (var filePath in Directory.GetFiles(lPath))
                 {
                     var fileName = Path.GetFileName(filePath);
-                    var w = CombineUrl(rPath, fileName);
-                    UploadFile(filePath,
-                               CombineUrl(rPath, fileName));
+                    UploadFile(filePath, CombineUrl(rPath, fileName));
                 }
                 foreach (var dirPath in Directory.GetDirectories(lPath))
                 {
@@ -325,6 +324,11 @@ namespace HDFSTools
             bool success = UploadDirectory(localPath, remoteTmpPath);
             if (success)
             {
+                if (GetStatus(remotePath) != null)
+                {
+                    Delete(remotePath, true);
+                }
+
                 bool renameSuccess = Rename(remoteTmpPath, remotePath);
                 if (!renameSuccess || ListDir(remoteTmpPath) != null)
                 {
@@ -363,90 +367,70 @@ namespace HDFSTools
         /// <param name="path"></param>
         /// <param name="errBoundary"></param>
         /// <returns>ListResult, null if path is not exists</returns>
-        private ListResult ListDir(string path, int errBoundary = DefaultErrorBoundary)
+        private ListResult ListDir(string path)
         {
-            string url = CombineUrl(String.Format(QueryUrl.WebHdfs, path.TrimStart('/')), QueryUrl.ListDir);
+            string url = String.Format(QueryUrl.WebHdfs, path.TrimStart('/')) + QueryUrl.ListDir;
 
-            int errCount = 0;
-            while (errCount < errBoundary)
+
+            Func<string, string, ListStatusResponse> action = (string _url, string _method) =>
             {
-                try
-                {
-                    var request = (HttpWebRequest)WebRequest.Create(String.Format(url, this.activeNameNode));
-                    request.Method = "GET";
-                    var response = (HttpWebResponse)request.GetResponse();
-                    StreamReader sr = new StreamReader(response.GetResponseStream());
-                    var statuses = JsonConvert.DeserializeObject<ListStatusResponse>(sr.ReadToEnd());
-                    response.Close();
+                var response = SendHdfsRequest(_url, _method);
+                StreamReader sr = new StreamReader(response.GetResponseStream());
+                ListStatusResponse listStatus = JsonConvert.DeserializeObject<ListStatusResponse>(sr.ReadToEnd());
+                sr.Close();
+                response.Close();
+                return listStatus;
+            };
+            var statuses = webAction.Retry(url, WebRequestMethods.Http.Get, action, ExceptionTrigger);
 
-                    var listResult = new ListResult();
-
-                    listResult.dirs = (from status in statuses.FileStatuses.FileStatus
-                                       where status.type == FileType.Directory && !string.IsNullOrEmpty(status.pathSuffix)
-                                       select status.pathSuffix).ToArray();
-
-                    listResult.files = (from status in statuses.FileStatuses.FileStatus
-                                        where status.type == FileType.File && !string.IsNullOrEmpty(status.pathSuffix)
-                                        select status.pathSuffix).ToArray();
-
-                    return listResult;
-                }
-                catch (WebException)
-                {
-                    RefreshActiveNameNode();
-                    errCount++;
-                }
+            if (statuses == null)
+            {
+                return null;
             }
-            logger.Warn("Can't list HDFS directory");
-            return null;
+
+            var listResult = new ListResult();
+
+            listResult.Dirs = (from status in statuses.FileStatuses.FileStatus
+                               where status.type == FileType.Directory && !string.IsNullOrEmpty(status.pathSuffix)
+                               select status.pathSuffix).ToArray();
+
+            listResult.Files = (from status in statuses.FileStatuses.FileStatus
+                                where status.type == FileType.File && !string.IsNullOrEmpty(status.pathSuffix)
+                                select status.pathSuffix).ToArray();
+            return listResult;
         }
 
-        private _FileStatus GetStatus(string path, int errBoundary = DefaultErrorBoundary)
+        private _FileStatus GetStatus(string path)
         {
-            string url = CombineUrl(String.Format(QueryUrl.WebHdfs, path.TrimStart('/')), QueryUrl.Status);
+            string url = String.Format(QueryUrl.WebHdfs, path.TrimStart('/')) + QueryUrl.Status;
 
-            int errCount = 0;
-            while (errCount < errBoundary)
+            Func<string, string, _FileStatus> action = (_url, _method) =>
             {
-                try
-                {
-                    var request = (HttpWebRequest)WebRequest.Create(String.Format(url, this.activeNameNode));
-                    request.Method = "GET";
-                    var response = (HttpWebResponse)request.GetResponse();
-                    StreamReader sr = new StreamReader(response.GetResponseStream());
-                    var statuses = JsonConvert.DeserializeObject<FileStatusResponse>(sr.ReadToEnd());
-                    response.Close();
-                    return statuses.FileStatus;
-                }
-                catch (WebException)
-                {
-                    RefreshActiveNameNode();
-                    errCount++;
-                }
-            }
-            logger.Warn("Can't query HDFS file status");
-            return null;
+                var response = SendHdfsRequest(_url, _method);
+                StreamReader sr = new StreamReader(response.GetResponseStream());
+                FileStatusResponse fsr = JsonConvert.DeserializeObject<FileStatusResponse>(sr.ReadToEnd());
+                sr.Close();
+                response.Close();
+                return fsr.FileStatus;
+            };
+
+            return webAction.Retry(url, WebRequestMethods.Http.Get, action, ExceptionTrigger);
         }
 
-        private bool DownloadFile(string remotePath, string localPath, int errBoundary = DefaultErrorBoundary)
+        private bool DownloadFile(string remotePath, string localPath)
         {
-            string url = CombineUrl(String.Format(QueryUrl.WebHdfs, remotePath.TrimStart('/')), QueryUrl.Open);
+            string url = String.Format(QueryUrl.WebHdfs, remotePath.TrimStart('/')) + QueryUrl.Open;
 
-            int errCount = 0;
-            while (errCount < errBoundary)
+            Func<string, string, bool> action = (_url, _method) =>
             {
-                try
+                using (WebClient wc = new WebClient())
                 {
-                    this.webClient.DownloadFile(string.Format(url, this.activeNameNode), localPath);
-                    break;
+                    wc.DownloadFile(FormatNameNode(_url), localPath);
                 }
-                catch (WebException)
-                {
-                    RefreshActiveNameNode();
-                    errCount++;
-                }
-            }
-            return errCount < errBoundary ? true : false;
+                return true;
+            };
+
+            return webAction.Retry(url, null, action, ExceptionTrigger);
         }
 
         private bool DownloadDirectory(string remotePath, string localPath)
@@ -464,20 +448,19 @@ namespace HDFSTools
 
                 ListResult listResult = ListDir(rPath);
 
-                foreach (var fileName in listResult.files)
+                foreach (var fileName in listResult.Files)
                 {
                     DownloadFile(CombineUrl(remotePath, pathSuffix, fileName),
                                  CombineUrl(localPath, pathSuffix, fileName));
                 }
 
-                foreach (var dirName in listResult.dirs)
+                foreach (var dirName in listResult.Dirs)
                 {
                     dirQueue.Enqueue(CombineUrl(pathSuffix, dirName));
                 }
             }
             return true;
         }
-
 
         private bool DownloadByTmpFile(string remotePath, string localPath)
         {
@@ -490,7 +473,7 @@ namespace HDFSTools
             }
             else
             {
-                File.Delete(localTmpPath);
+                CheckAndRemoveTargetData(localTmpPath);
             }
             return success;
         }
@@ -506,7 +489,7 @@ namespace HDFSTools
             }
             else
             {
-                Directory.Delete(localTmpPath);
+                CheckAndRemoveTargetData(localTmpPath);
             }
             return success;
         }
@@ -523,7 +506,12 @@ namespace HDFSTools
             }
         }
 
-        public bool Download(string remotePath, string localPath, bool overwrite = true)
+        public bool Download(string remotePath, string localPath)
+        {
+            return Download(remotePath, localPath, true);
+        }
+
+        public bool Download(string remotePath, string localPath, bool overwrite)
         {
 
             if (File.Exists(localPath) || Directory.Exists(localPath))
