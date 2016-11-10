@@ -53,12 +53,11 @@ def retry_request(exceptions, default_return_value=ResultValue.NOTHING):
 
 class HDFSClient(object):
 
-    def __init__(self, namenodes, refresh_interval=60):
+    def __init__(self, namenodes):
         """Create an instance of HDFSClient for use
 
         Args:
           namenodes (iterable of `NameNode`): a sequence of NameNode objects.
-          refresh_interval (int): interval in seconds for refresh active namnode
 
         """
         if len(namenodes) == 0 or len(namenodes) > 2:
@@ -66,7 +65,6 @@ class HDFSClient(object):
 
         self._nns = namenodes
         self._refresh_active_namenode()
-        self._refresh_interval = refresh_interval
 
     def request_error_trigger(self, err, is_final):
         if is_final:
@@ -96,10 +94,6 @@ class HDFSClient(object):
 
         self._active_namenode = self._nns[0]
         self._last_refresh_ts = time()
-
-    def _check_for_refresh_active_namenode(self):
-        if time() - self._last_refresh_ts > self._refresh_interval:
-            self._refresh_active_namenode()
 
     def _format_namenode(self, url):
         return url.format(host=self._active_namenode.host,
