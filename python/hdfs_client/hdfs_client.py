@@ -56,7 +56,7 @@ class HDFSClient(object):
         """Create an instance of HDFSClient for use
 
         Args:
-          namenodes (iterable of `NameNode`): a sequence of NameNode objects.
+          namenodes (iterable of `NameNode`): a list(limit 1~2) of NameNode objects.
 
         """
         if len(namenodes) == 0 or len(namenodes) > 2:
