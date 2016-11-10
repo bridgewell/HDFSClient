@@ -17,7 +17,6 @@ from .request_wrapper import RetryAction, ResultValue
 
 logger = logging.getLogger(__name__)
 
-
 NameNode = namedtuple('NameNode', ['host', 'port'])
 HDFSData = namedtuple('HDFSData', ['dirs', 'files'])
 
@@ -71,7 +70,7 @@ class HDFSClient(object):
             logger.error('Can\'t send request, error message:\n{}'.format(str(err)))
         else:
             logger.warn('Can\'t send request, error message:\n{}, try to refresh \
-                        active HDFS NameNode and send request again'.format(str(err)))
+                         active HDFS NameNode and send request again'.format(str(err)))
             self._refresh_active_namenode()
 
     @retry_request((RequestException, ActiveNamenodeNotFoundException))
