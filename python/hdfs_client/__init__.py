@@ -13,7 +13,7 @@ from requests import RequestException
 from requests.compat import urljoin
 
 from .exceptions import ActiveNamenodeNotFoundException
-from .request_wrapper import RetryAction, ResultValue
+from .request_wrapper import RetryAction, ResultValue, empty_trigger
 
 logger = logging.getLogger(__name__)
 
@@ -38,12 +38,13 @@ class DataType(object):
     DIRECTORY = 'DIRECTORY'
 
 
-def retry_request(exceptions, default_return_value=ResultValue.NOTHING):
+def retry_request(exceptions, default_return_value=ResultValue.NOTHING, default_trigger=None):
 
     def outer_wrapper(func):
 
         def func_wrapper(ins, *args, **kwargs):
-            proc = RetryAction(func, exceptions, default_return_value, error_trigger=ins.request_error_trigger)
+            error_trigger = (default_trigger or ins.request_error_trigger)
+            proc = RetryAction(func, exceptions, default_return_value, error_trigger=error_trigger)
             return proc(ins, *args, **kwargs)
         return func_wrapper
 
@@ -73,7 +74,7 @@ class HDFSClient(object):
                          active HDFS NameNode and send request again'.format(str(err)))
             self._refresh_active_namenode()
 
-    @retry_request((RequestException, ActiveNamenodeNotFoundException))
+    @retry_request((RequestException, ActiveNamenodeNotFoundException), default_trigger=empty_trigger)
     def _refresh_active_namenode(self):
 
         active_index = None
