@@ -367,7 +367,7 @@ namespace HDFSTools
         /// <param name="path"></param>
         /// <param name="errBoundary"></param>
         /// <returns>ListResult, null if path is not exists</returns>
-        private ListResult ListDir(string path)
+        public ListResult ListDir(string path)
         {
             string url = String.Format(QueryUrl.WebHdfs, path.TrimStart('/')) + QueryUrl.ListDir;
 
@@ -400,7 +400,7 @@ namespace HDFSTools
             return listResult;
         }
 
-        private _FileStatus GetStatus(string path)
+        public _FileStatus GetStatus(string path)
         {
             string url = String.Format(QueryUrl.WebHdfs, path.TrimStart('/')) + QueryUrl.Status;
 
@@ -513,7 +513,6 @@ namespace HDFSTools
 
         public bool Download(string remotePath, string localPath, bool overwrite)
         {
-
             if (File.Exists(localPath) || Directory.Exists(localPath))
             {
                 logger.Warn(string.Format("Local path have been used: {0}", localPath));
